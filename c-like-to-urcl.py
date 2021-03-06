@@ -7,7 +7,12 @@ def cr(a):
 def split(s):
     n = ''
     t = []
+    inc = False
     for c in s:
+        if c == '\n':
+            inc = False
+        if inc:
+            continue
         if c == ' ':
             if n != '':
                 t.append(n)
@@ -17,6 +22,13 @@ def split(s):
                 t.append(n)
             t.append(c)
             n = ''
+        elif c == '/':
+            if n == '/':
+                inc = True
+            else:
+                if n != '':
+                    t.append(n)
+                n = '/'
         elif c == '+':
             if n == '+':
                 t.append('++')
@@ -115,6 +127,16 @@ class Lexer:
                                 self.output.append(tk('INT_DECLARE', [var_name, data]))
                             else:
                                 throw('syntax_error', f'no semi-colon! [ {d} {var_name} = {data} ]')
+                        elif data.startswith('*'):
+                            # int* data
+                            try:
+                                semi_colon = self.f()
+                            except IndexError:
+                                throw ('syntax_error', f'no semi-colon! [ {d} {var_name} = {data} ]')
+                            if semi_colon == ';':
+                                self.output.append(tk('INT_DECLARE_INT_PTR_READ', [var_name, data[1:]]))
+                            else:
+                                throw ('syntax_error', f'no semi-colon! [ {d} {var_name} = {data} ]')
                         else:
                             semi_colon = self.f()
                             if semi_colon == ';':
@@ -173,7 +195,7 @@ class Lexer:
                             except IndexError:
                                 throw('syntax_error', f'no semi-colon! [ {d} {var_name} = {data} ]')
                             if semi_colon == ';':
-                                self.output.append(tk('CHAR_DECLARE_VAR', [var_name, str(int(data) & 0xff)]))
+                                self.output.append(tk('CHAR_DECLARE_VAR', [var_name, data]))
                             elif semi_colon == '(':
                                 args = []
                                 #t2 = self.f()
@@ -268,10 +290,18 @@ class Lexer:
                         self.output.append(tk('VAR_PTR_RETURN_STATEMENT', [data[1:]]))
                     else:
                         self.output.append(tk('VAR_RETURN_STATEMENT', [data]))
+            elif d.startswith('#'):
+                if d[1:] == 'include':
+                    path = self.f()
+                    if path.startswith('"'):
+                        if not path.endswith('"'):
+                            while not path.endswith('"'):
+                                path += self.f()
+                        self.output.append(tk('INCLUDE_STATEMENT', [path[1:-1]]))
             elif d.startswith('}'):
                 #fname = self.f()
                 self.output.append(tk('END_FUNCTION', []))
-            elif d.isascii():
+            elif d.isascii() and not d.startswith('*'):
                 op = self.f()
                 print(d, op)
                 if op == ';' or d == ';': 
@@ -292,6 +322,12 @@ class Lexer:
                         self.output.append(tk('SUB_IN_PLACE_INT_INT', [d,d2]))
                     else:
                         self.output.append(tk('SUB_IN_PLACE_INT_VAR', [d,d2]))
+                elif op == '=':
+                    d2 = self.f()
+                    if d2.isnumeric():
+                        self.output.append(tk('REASSIGN_INT', [d, d2]))
+                    else:
+                        self.output.append(tk('REASSIGN_VAR', [d, d2]))
             try:
                 d = self.f()
             except IndexError:
@@ -301,14 +337,15 @@ class Lexer:
 VAROFF = 0x200
 
 class Compiler:
-    def __init__(self, lex):
+    def __init__(self, lex, d=True):
         self.l = lex
         self.cti = -1
         #self.output = 'CAL .main\n'
-        self.output = 'CAL .main\nHLT\n'
-        self.after_out = ''
+        self.output = ('CAL .clear_memory\nCAL .main\nHLT\n' if d else '')
+        self.after_out = (".clear_memory\nIMM R1, 400\n._clear__iter__\nSTR R1, 0\nADD R1, R1, 1\nCMP R1, 65535\nBNZ ._clear__iter__\nRET\n" if d else '')
         self.vars = {}
         self.funcs = {}
+        self.cf = []
         self.off = 0
     def p(self, ln):
         self.output += ln + '\n'
@@ -320,77 +357,154 @@ class Compiler:
     def c(self):
         d = self.f()
         while True:
+            if d[0] == 'INCLUDE_STATEMENT':
+                data1 = open(d[1][0], 'r').read()
+                data2 = split(data1)
+                data3 = Lexer(data2).l()
+                #print(data3)
+                data4 = Compiler(data3, False).c()
+                #print(f'Fuck me:{data4[0]}')
+                #print(data4[1:])
+                self.vars.update(data4[1])
+                self.funcs.update(data4[2])
+                self.after_out += data4[0]
+            # integer_declarations
             if d[0] == 'INT_DECLARE':
-                self.vars[d[1][0]] = self.off
+                if d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} already exist!')
+                self.vars[d[1][0]] = ['int', self.off]
                 self.p(f'STR {VAROFF+self.off}, {d[1][1]}')
-                self.off += 2
+                self.off += 1
             elif d[0] == 'INT_DECLARE_VAR':
-                if not d[1][1] in self.vars.keys():
-                    throw('compile_error', f'variable {d[1][1]} doesn\'t exist')
-                else:
-                    self.vars[d[1][0]] = self.off
-                    self.p(f'LOD R1, {VAROFF+self.vars[d[1][1]]}')
-                    self.p(f'STR {VAROFF+self.off}, R1')
-                    self.off += 2
+                if d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} already exist!')
+                self.vars[d[1][0]] = ['int', self.off]
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'STR {VAROFF+self.off}, R1')
+                self.off+=1
             elif d[0] == 'INT_DECLARE_FUNCTION_CALL':
-                #if not d[1][1] in self.funcs:
-                #    throw('compile_error', f'function {d[1][1]} doesn\'t exist')
-                
+                if d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} already exist!')
+                elif not self.funcs[d[1][1]][0] == 'int':
+                    throw('compile_error', f'function {d[1][1]} return type isn\'t \'int\'')
+                self.vars[d[1][0]] = ['int', self.off]
                 for param in d[1][2]:
                     if param.isnumeric():
                         self.p(f'PSH {param}')
                     else:
-                        self.p(f'LOD R1, {VAROFF+self.vars[param]}')
+                        self.p(f'LOD R1, {VAROFF+self.vars[param][1]}')
                         self.p(f'PSH R1')
                 self.p(f'CAL .{d[1][1]}')
-                self.vars[d[1][0]] = self.off
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-                self.off+=2
+                self.p(f'STR {VAROFF+self.off}, R1')
+                self.off+=1
             elif d[0] == 'INT_FUNCTION_DEC':
-                self.funcs[d[1][0]] = d[1][1]
+                if d[1][0] in self.funcs:
+                    throw('compile_error', f'function {d[1][0]} already exist!')
+                self.funcs[d[1][0]] = ['int', d[1][1]]
                 self.p(f'.{d[1][0]}')
+                self.cf.append(d[1][0])
                 for param in d[1][1]:
-                    self.vars[param[1]] = self.off
-                    self.p(f'POP R1')
-                    self.p(f'STR {VAROFF+self.off}, R1')
-                    self.off += 2
-            elif d[0] == 'INCREMENT_INT':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'ADD R1, R1, 1')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-            elif d[0] == 'DECREMENT_INT':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'SUB R1, R1, 1')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-            elif d[0] == 'ADD_IN_PLACE_INT_INT':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'ADD R1, R1, {d[1][1]}')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-            elif d[0] == 'SUB_IN_PLACE_INT_INT':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'SUB R1, R1, {d[1][1]}')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-            elif d[0] == 'ADD_IN_PLACE_INT_VAR':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]]}')
-                self.p(f'ADD R1, R1, R2')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
-            elif d[0] == 'SUB_IN_PLACE_INT_VAR':
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
-                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]]}')
-                self.p(f'SUB R1, R1, R2')
-                self.p(f'STR {VAROFF+self.vars[d[1][0]]}, R1')
+                    if param[0] == 'int':
+                        self.vars[param[1]] = ['int', self.off]
+                        self.p(f'POP R1')
+                        self.p(f'STR {VAROFF+self.off}, R1')
+                        self.off+=1
+            elif d[0] == 'VAR_RETURN_STATEMENT':
+                #if self.funcs[self.cf][0] == 'int':
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'RET')
             elif d[0] == 'LITERAL_RETURN_STATEMENT':
                 self.p(f'IMM R1, {d[1][0]}')
-                self.p('RET')
-            elif d[0] == "VAR_RETURN_STATEMENT":
-                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]]}')
                 self.p(f'RET')
-            
+            elif d[0] == 'REASSIGN_INT':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist!')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, {d[1][1]}')
+            elif d[0] == 'REASSIGN_VAR':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist!')
+                elif not d[1][1] in self.vars:
+                    throw('compile_error', f'variable {d[1][1]} doesn\'t exist!')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'CHAR_DECLARE':
+                self.vars[d[1][0]] = ['char', self.off]
+                self.p(f'STR {VAROFF+self.off}, {int(d[1][1]) & 0xff}')
+            elif d[0] == 'CHAR_DECLARE_VAR':
+                if not d[1][1] in self.vars:
+                    throw('compile_error', f'variable {d[1][1]} doesn\'t exist!')
+                if self.vars[d[1][1]][0] != 'char':
+                    throw('compile_error', f'variable {d[1][1]} type isn\'t \'char\'')
+                self.vars[d[1][0]] = ['char',self.off]
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'STR {VAROFF+self.off}, R1')
+                self.off+=1
+            elif d[0] == 'CHAR_DECLARE_FUNCTION_CALL':
+                if self.funcs[d[1][1]][0] != 'char':
+                    throw('compile_error', f'function {d[1][1]} return type isn\'t \'char\'')
+                self.vars[d[1][0]] = ['char', self.off]
+                for p in d[1][2]:
+                    if p.isnumeric():
+                        self.p(f'PSH {p}')
+                    else:
+                        if not p in self.vars:
+                            throw('compile_error', f'variable {p} doesn\'t exist! (threw while calling {d[1][1]})')
+                        self.p(f'LOD R1, {VAROFF+self.vars[p][1]}')
+                        self.p(f'PSH R1')
+                self.p(f'CAL .{d[1][1]}')
+                self.p(f'STR {VAROFF+self.off}, R1')
+                self.off+=1
+            elif d[0] == 'CHAR_FUNCTION_DEC':
+                if d[1][0] in self.funcs:
+                    throw('compile_error', f'function {d[1][0]} already exists!')
+                self.funcs[d[1][0]] = ['char', d[1][1]]
+                self.p(f'.{d[1][0]}')
+                self.cf.append(d[1][0])
+                for p in d[1][1]:
+                    print(p)
+                    self.vars[p[1]] = [p[0], self.off]
+                    print(self.vars)
+                    self.p(f'POP R1')
+                    self.p(f'STR {VAROFF+self.off}, R1')
+                    self.off+=1
+            elif d[0] == 'ADD_IN_PLACE_INT_INT':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'ADD R1, R1, {d[1][1]}')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'SUB_IN_PLACE_INT_INT':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'SUB R1, R1, {d[1][1]}')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'ADD_IN_PLACE_INT_VAR':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif not d[1][1] in self.vars:
+                    throw('compile_error', f'variable {d[1][1]} doesn\'t exist')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'ADD R1, R1, R2')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'SUB_IN_PLACE_INT_VAR':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif not d[1][1] in self.vars:
+                    throw('compile_error', f'variable {d[1][1]} doesn\'t exist')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'SUB R1, R1, R2')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+                
+            elif d[0] == 'END_FUNCTION':
+                print(self.cf)
+                self.cf.pop()
             try:
                 d = self.f()
             except IndexError:
-                return self.output + self.after_out
+                return self.output + self.after_out, self.vars, self.funcs, self.cf
 
         
 import sys
@@ -401,4 +515,7 @@ data2 = Lexer(data).l()
 print(data2)
 
 data3 = Compiler(data2).c()
-print(data3)
+print(data3[0])
+print(data3[1])
+print(data3[2])
+print(data3[3])
