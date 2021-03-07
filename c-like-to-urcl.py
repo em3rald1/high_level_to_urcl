@@ -271,6 +271,78 @@ class Lexer:
                                 an1 = self.f()
                             except IndexError: break
                         self.output.append(tk('INT_PTR_FUNCTION_DEC', [var_name, args]))
+            elif d == 'bool':
+                var_name = self.f()
+                if var_name.isascii():
+                    d2 = self.f()
+                    if d2 == '=':
+                        # var assignment
+                        data = self.f()
+                        if data == 'true' or data == 'false':
+                            semi_colon = self.f()
+                            if semi_colon == ';':
+                                self.output.append(tk('BOOL_DECLARE', [var_name, 1 if data == 'true' else 0]))
+                        else:
+                            semi_colon = self.f()
+                            if semi_colon == ';':
+                                self.output.append(tk('BOOL_DECLARE_VAR', [var_name, data]))
+                            elif semi_colon == '(':
+                                args = []
+                                t1 = self.f()
+                                while t1 != ')':
+                                    args.append(t1)
+                                    t1 = self.f()
+                                semi_colon2 = self.f()
+                                if semi_colon2 == ';':
+                                    self.output.append(tk('BOOL_DECLARE_FUNCTION_CALL', [var_name, data, args]))
+                            elif semi_colon == '==':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_EQ_II', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_EQ_IV', [var_name, d3, data]))
+                                else:
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_EQ_VI', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_EQ_VV', [var_name, d3, data]))
+                            elif semi_colon == '>':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_GR_II', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_GR_IV', [var_name, d3, data]))
+                                else:
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_GR_VI', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_GR_VV', [var_name, d3, data]))
+                            elif semi_colon == '<':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_LS_II', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_LS_IV', [var_name, d3, data]))
+                                else:
+                                    if data.isnumeric():
+                                        self.output.append(tk('BOOL_DECLARE_LS_VI', [var_name, d3, data]))
+                                    else:
+                                        self.output.append(tk('BOOL_DECLARE_LS_VV', [var_name, d3, data]))
+                    elif d2 == '(':
+                        args = []
+                        t3 = self.f()
+                        d3 = self.f()
+                        while t3 != ")":
+                            args.append([t3,d3])
+                            t3 = self.f()
+                            try:
+                                d3 = self.f()
+                            except IndexError:
+                                break
+                        self.output.append(tk('BOOL_FUNCTION_DECLARE', [var_name, args]))
             elif d == 'return':
                 data = self.f()
                 tmp_k = self.f()
@@ -288,6 +360,8 @@ class Lexer:
                     #self.output.append(tk('VAR_RETURN_STATEMENT', [data]))
                     if data.startswith('&'):
                         self.output.append(tk('VAR_PTR_RETURN_STATEMENT', [data[1:]]))
+                    elif data == 'false' or data == 'true':
+                        self.output.append(tk('LITERAL_RETURN_STATEMENT', [1 if data == 'true' else 0]))
                     else:
                         self.output.append(tk('VAR_RETURN_STATEMENT', [data]))
             elif d.startswith('#'):
@@ -314,18 +388,48 @@ class Lexer:
                     d2 = self.f()
                     if d2.isnumeric():
                         self.output.append(tk('ADD_IN_PLACE_INT_INT', [d, d2]))
+                    elif d2 == '(':
+                        typCast = self.f()
+                        if typCast.isascii():
+                            cb = self.f()
+                            if cb == ')':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    self.output.append(tk('ADD_IN_PLACE_INT_INT_CASTED', [d, typCast, d3]))
+                                else:
+                                    self.output.append(tk('ADD_IN_PLACE_INT_VAR_CASTED', [d, typCast, d3]))
                     else:
                         self.output.append(tk('ADD_IN_PLACE_INT_VAR', [d, d2]))
                 elif op == '-=':
                     d2 = self.f()
                     if d2.isnumeric():
                         self.output.append(tk('SUB_IN_PLACE_INT_INT', [d,d2]))
+                    elif d2 == '(':
+                        typCast = self.f()
+                        if typCast.isascii():
+                            cb = self.f()
+                            if cb == ')':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    self.output.append(tk('SUB_IN_PLACE_INT_INT_CASTED', [d, typCast, d3]))
+                                else:
+                                    self.output.append(tk('SUB_IN_PLACE_INT_VAR_CASTED', [d, typCast, d3]))
                     else:
                         self.output.append(tk('SUB_IN_PLACE_INT_VAR', [d,d2]))
                 elif op == '=':
                     d2 = self.f()
                     if d2.isnumeric():
                         self.output.append(tk('REASSIGN_INT', [d, d2]))
+                    elif d2 == '(':
+                        typCast = self.f()
+                        if typCast.isascii():
+                            cb = self.f()
+                            if cb == ')':
+                                d3 = self.f()
+                                if d3.isnumeric():
+                                    self.output.append(tk('REASSIGN_INT_CASTED', [d, typCast, d3]))
+                                else:
+                                    self.output.append(tk('REASSIGN_VAR_CASTED', [d, typCast, d3]))
                     else:
                         self.output.append(tk('REASSIGN_VAR', [d, d2]))
             try:
@@ -484,6 +588,8 @@ class Compiler:
                     throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
                 elif not d[1][1] in self.vars:
                     throw('compile_error', f'variable {d[1][1]} doesn\'t exist')
+                elif self.vars[d[1][0]][0] != self.vars[d[1][1]][0]:
+                    throw('compile_error', f'variable types aren\'t the same')
                 self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
                 self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
                 self.p(f'ADD R1, R1, R2')
@@ -493,10 +599,119 @@ class Compiler:
                     throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
                 elif not d[1][1] in self.vars:
                     throw('compile_error', f'variable {d[1][1]} doesn\'t exist')
+                elif self.vars[d[1][0]][0] != self.vars[d[1][1]][0]:
+                    throw('compile_error', f'variable types aren\'t the same')
                 self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
                 self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
                 self.p(f'SUB R1, R1, R2')
                 self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'SUB_IN_PLACE_INT_VAR_CASTED':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif not d[1][2] in self.vars:
+                    throw('compile_error', f'variable {d[1][2]} doesn\'t exist')
+                elif self.vars[d[1][0]][0] == self.vars[d[1][2]][0]:
+                    throw('compile_error', f'variable\'s {d[1][0]} type equals to type of variable {d[1][2]}')
+                elif not d[1][1] == self.vars[d[1][0]][0]:
+                    throw('compile_error', f'casting to wrong type ({d[1][1]})')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][2]][1]}')
+                self.p(f'SUB R1, R1, R2')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'ADD_IN_PLACE_INT_VAR_CASTED':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif not d[1][2] in self.vars:
+                    throw('compile_error', f'variable {d[1][2]} doesn\'t exist')
+                elif self.vars[d[1][0]][0] == self.vars[d[1][2]][0]:
+                    throw('compile_error', f'variable\'s {d[1][0]} type equals to type of variable {d[1][2]}')
+                elif not d[1][1] == self.vars[d[1][0]][0]:
+                    throw('compile_error', f'casting to wrong type ({d[1][1]})')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][0]][1]}')
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][2]][1]}')
+                self.p(f'ADD R1, R1, R2')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'REASSIGN_VAR_CASTED':
+                if not d[1][0] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif not d[1][2] in self.vars:
+                    throw('compile_error', f'variable {d[1][0]} doesn\'t exist')
+                elif d[1][1] == self.vars[d[1][2]][0]:
+                    throw('compile_error', f'variable {d[1][0]} casted wrongly ({d[1][1]})')
+                elif d[1][1] != self.vars[d[1][0]][0]:
+                    throw('compile_error', f'cast is wrong ({d[1][1]})')
+                self.p(f'LOD R1, {VAROFF+self.vars[d[1][2]][1]}')
+                self.p(f'STR {VAROFF+self.vars[d[1][0]][1]}, R1')
+            elif d[0] == 'BOOL_FUNCTION_DECLARE':
+                if d[1][0] in self.funcs:
+                    throw('compile_error', f'function {d[1][0]} already exist')
+                self.funcs[d[1][0]] = ['bool', d[1][1]]
+                self.p(f'.{d[1][0]}')
+                for param in d[1][1]:
+                    self.vars[param[1]] = [param[0], self.off]
+                    self.p(f'POP R1')
+                    self.p(f'STR {VAROFF+self.off}, R1')
+                    self.off+=1
+                self.cf.append(d[1][0])
+            elif d[0] == 'BOOL_DECLARE_FUNCTION_CALL':
+                self.vars[d[1][0]] = ['bool', self.off]
+                for p in d[1][2]:
+                    if p.isnumeric():
+                        self.p(f'PSH {p}')
+                    else:
+                        self.p(f'LOD R1, {VAROFF+self.vars[p][1]}')
+                        self.p(f'PSH R1')
+                self.p(f'CAL .{d[1][1]}')
+                self.p(f'STR {VAROFF+self.off}, R1')
+                self.off+=1
+            elif d[0] == 'BOOL_DECLARE_EQ_II':
+                self.vars[d[1][0]] = ['bool', self.off]
+                self.p(f'SUB R1, {d[1][1]}, {d[1][2]}')
+                self.p(f'CMP R1, 0')
+                self.p(f'BNZ .not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 1')
+                self.p(f'BRA .continue{self.off}')
+                self.p(f'.not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 0')
+                self.p(f'.continue{self.off}')
+                self.off+=1
+            elif d[0] == 'BOOL_DECLARE_EQ_IV':
+                self.vars[d[1][0]] = ['bool', self.off]
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][2]][1]}')
+                self.p(f'SUB R1, {d[1][1]}, R2')
+                self.p(f'CMP R1, 0')
+                self.p(f'BNZ .not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 1')
+                self.p(f'BRA .continue{self.off}')
+                self.p(f'.not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 0')
+                self.p(f'.continue{self.off}')
+                self.off+=1
+            elif d[0] == 'BOOL_DECLARE_EQ_VI':
+                self.vars[d[1][0]] = ['bool', self.off]
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'SUB R1, R2, {d[1][2]}')
+                self.p(f'CMP R1, 0')
+                self.p(f'BNZ .not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 1')
+                self.p(f'BRA .continue{self.off}')
+                self.p(f'.not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 0')
+                self.p(f'.continue{self.off}')
+                self.off+=1
+            elif d[0] == 'BOOL_DECLARE_EQ_VV':
+                self.vars[d[1][0]] = ['bool', self.off]
+                self.p(f'LOD R2, {VAROFF+self.vars[d[1][1]][1]}')
+                self.p(f'LOD R3, {VAROFF+self.vars[d[1][2]][1]}')
+                self.p(f'SUB R1, R2, R3')
+                self.p(f'CMP R1, 0')
+                self.p(f'BNZ .not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 1')
+                self.p(f'BRA .continue{self.off}')
+                self.p(f'.not_z{self.off}')
+                self.p(f'STR {VAROFF+self.off}, 0')
+                self.p(f'.continue{self.off}')
+                self.off+=1
                 
             elif d[0] == 'END_FUNCTION':
                 print(self.cf)
@@ -519,3 +734,5 @@ print(data3[0])
 print(data3[1])
 print(data3[2])
 print(data3[3])
+
+open(sys.argv[2], 'w').write(data3[0])
